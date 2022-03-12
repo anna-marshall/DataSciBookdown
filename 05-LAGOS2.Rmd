@@ -1,0 +1,173 @@
+```{r setup, include=FALSE}
+library(tidyverse) # Tidy packages
+library(sf) #Spatial package that can read and create shapefiles 
+library(mapview) #Interactive maps
+library(LAGOSNE) #Lots and lots of clean lake data
+library(USAboundaries) #USA states and counties
+library(lubridate) #For dealing with date and time
+```
+# Working with LAGOS data - Part 2
+
+## Overview
+As mentioned in part 1, LAGOS is a multi-scaled geospatial and temporal database of lake ecological context and water quality for thousands of US lakes. LAGOS-NE contains data for 51,101 lakes and reservoirs larger than 4 ha in 17 lake-rich US states. The database includes 3 data modules for: lake location and physical characteristics, ecological context, and in situ measurements of lake water quality. This database is one of the largest and most comprehensive databases of its type because it includes both in situ measurements and ecological context data. You can use the link to learn more about LAGOS. (https://lagoslakes.org/) 
+
+## Methods
+In this part of the assignment, we're diving one step deeper into the LAGOS data and are looking at the in site measurements of lake water quality. We will use secchi disk and chlorophyll data for analyses. 
+
+## Analysis and Discussion
+
+```{r data-read, include=FALSE}
+## Loading in data
+### First download and then specifically grab the locus (or site lat longs)
+#Lagos download script
+#lagosne_get(dest_folder = LAGOSNE:::lagos_path(),overwrite=T)
+
+#Load in lagos
+lagos <- lagosne_load()
+
+
+#Grab the lake centroid info
+lake_centers <- lagos$locus
+
+# Make an sf object 
+spatial_lakes <- st_as_sf(lake_centers,coords=c('nhd_long','nhd_lat'),
+                          crs=4326)
+
+#Grab the water quality data
+nutr <- lagos$epi_nutr
+
+#Look at column names
+#names(nutr)
+```
+
+
+
+```{r, include=FALSE}
+### Subset columns nutr to only keep key info that we want
+clarity_only <- nutr %>%
+  select(lagoslakeid,sampledate,chla,doc,secchi) %>%
+  mutate(sampledate = as.character(sampledate) %>% ymd(.))
+
+```
+
+
+```{r, include=FALSE}
+### Keep sites with at least 200 observations 
+#Look at the number of rows of dataset
+#nrow(clarity_only)
+
+chla_secchi <- clarity_only %>%
+  filter(!is.na(chla),
+         !is.na(secchi))
+
+# How many observatiosn did we lose?
+# nrow(clarity_only) - nrow(chla_secchi)
+
+
+# Keep only the lakes with at least 200 observations of secchi and chla
+chla_secchi_200 <- chla_secchi %>%
+  group_by(lagoslakeid) %>%
+  mutate(count = n()) %>%
+  filter(count > 200)
+
+
+```
+
+
+
+```{r, include=FALSE}
+### Join water quality data to spatial data
+spatial_200 <- inner_join(spatial_lakes,chla_secchi_200 %>%
+                            distinct(lagoslakeid,.keep_all=T),
+                          by='lagoslakeid')
+
+
+```
+
+
+
+```{r, echo=FALSE}
+### Take the mean chl_a and secchi by lake
+### Mean Chl_a map
+mean_values_200 <- chla_secchi_200 %>%
+  # Take summary by lake id
+  group_by(lagoslakeid) %>%
+  # take mean chl_a per lake id
+  summarize(mean_chl = mean(chla,na.rm=T),
+            mean_secchi=mean(secchi,na.rm=T)) %>%
+  #Get rid of NAs
+  filter(!is.na(mean_chl),
+         !is.na(mean_secchi)) %>%
+  # Take the log base 10 of the mean_chl
+  mutate(log10_mean_chl = log10(mean_chl))
+
+#Join datasets
+mean_spatial <- inner_join(spatial_lakes,mean_values_200,
+                          by='lagoslakeid') 
+
+#Make a map
+mapview(mean_spatial,zcol='log10_mean_chl')
+```
+
+
+### What is the correlation between Secchi Disk Depth and Chlorophyll a for sites with at least 200 observations?
+
+Lower secchi disk depths (and larger values) correspond with clearer water. On the flip side, higher chlorophyll values suggest more algae present and thus less clear water. In the sites with at least 200 observations, we see more chlorophyll is associated with a lower secchi disk depth. The two are correlated with overall water quality (high chlorophyll and low secchi = poor water quality)
+
+
+```{r, echo=FALSE}
+mean_spatial %>%
+ggplot(aes(x=mean_secchi,y=mean_chl))+
+  geom_point()+
+  labs(title="Mean Secchi vs. Chloraphyll at Sites With >200 Observations)",x="Mean Secchi",y="Mean Chloraphyll")+
+  ggthemes::theme_few()
+```
+
+### What states have the most data? 
+Minnesota has the most data followed by Michigan. Rhode Island has the least amount of available data. 
+
+First you will need to make a lagos spatial dataset that has the total number of counts per site.
+
+```{r, echo=FALSE}
+site_counts2 <- lake_centers %>%
+  group_by(lagoslakeid) %>%
+  mutate(count = n()) %>%
+  select(lagoslakeid,nhd_long,nhd_lat, count, state_zoneid)
+
+states_lagos <- lagos$state %>%
+  select(-state_pct_in_nwi, -state_ha_in_nwi,-state_ha)
+
+stateid_counts2 <- inner_join(site_counts2, states_lagos, by="state_zoneid")
+
+state_sums2 <- stateid_counts2 %>%
+  group_by(state_name) %>%
+  summarize(sum_counts = sum(count))
+states <- us_states()
+states_join2 <- inner_join(states,state_sums2,by='state_name') %>% 
+  arrange(desc(sum_counts))
+```
+
+
+```{r, echo=FALSE}
+# Second, you will need to join this point dataset to the us_boundaries data. 
+mapview(states_join2, zcol='sum_counts')
+```
+
+
+```{r, echo=FALSE}
+#Then you will want to group by state and sum all the observations in that state and arrange that data from most to least total observations per state. 
+states_join2 <- inner_join(states,state_sums2,by='state_name') %>% 
+  arrange(desc(sum_counts))
+state_count_table<-tibble(states_join2)
+state_count_table %>% select(state_name,sum_counts)
+```
+
+### Is there a spatial pattern in Secchi disk depth for lakes with at least 200 observations?
+
+The places with the most and least lake data had high concentrations of low depths. I see what appears to be greater secchi disk depths in larger lakes, but that pattern is strictly visual. There does not appear to be a spatial pattern in geographic location of the lakes other than the lakes in New England appear to be slightly clearer based on the secchi depth. 
+
+```{r, echo=FALSE}
+mapview(mean_spatial,zcol='mean_secchi')
+```
+
+

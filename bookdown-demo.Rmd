@@ -1,0 +1,1461 @@
+--- 
+title: "Environmental Data Science Methods & Analyses Compilation"
+author: "Anna Marshall"
+date: "`r Sys.Date()`"
+site: bookdown::bookdown_site
+output: bookdown::gitbook
+documentclass: book
+bibliography: [book.bib, packages.bib]
+biblio-style: apalike
+link-citations: yes
+github-repo: rstudio/bookdown-demo
+description: "This is a book compiling class assignments for an environmental data science course. The output format for this is bookdown::gitbook."
+---
+
+# Introduction to this book
+
+This book provides an overview of how to visualize and analyze different times of environmental data. Each chapter of the book contains both different types of data as well as methods of analysis and visualization. All chapters were created solely for the purpose of learning through the Environmental Data Science course at CSU (ESS580A7).  Below is a short overview of each chapter: 
+
+**Ch.2.** Using flow data to learn environmental data basics, file management, interactive plotting, and working between R Studio and Github. 
+
+**Ch.3.** Using remote imagery to look at landscape response to fire at different timescales.
+
+**Ch.4.** Calling in snow data from the web and building functions to create plots that loop data over multiple years. 
+
+**Ch.5.** Using large geospatial datasets to map the spatial distribution of water quality trends in reservoirs. 
+
+**Ch.6.** Continuing to use geospatial data to join datasets and extrapolate spatial trends. 
+
+**Ch.7.** Using yield and temperature data to create simple and multiple regression models, time serries, and panel models.
+
+**Ch.8.** References for data and code included in this book. 
+
+![](https://www.incimages.com/uploaded_files/image/1920x1080/software-computer-code-1940x900_35196.jpg)
+
+
+```{r include=FALSE}
+# automatically create a bib database for R packages
+knitr::write_bib(c(
+  .packages(), 'bookdown', 'knitr', 'rmarkdown'
+), 'packages.bib')
+```
+
+<!--chapter:end:index.Rmd-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(dataRetrieval)
+library(dygraphs)
+library(xts)
+```
+# Working with flow data
+
+
+## Overview
+The Poudre River at Lincoln Bridge is:
+
+  - Downstream of only a little bit of urban stormwater
+
+  - Near Odell Brewing CO
+  
+  - Near an open space area and the Poudre River Trail
+  
+  - Downstream of many agricultral diversions
+
+![](https://waterdata.usgs.gov/nwisweb/local/state/co/text/pics/06752260big.jpg)
+
+
+## Methods
+
+```{r downloader, include=FALSE}
+
+q <- readNWISdv(siteNumbers = '06752260',
+                parameterCd = '00060',
+                startDate = '2017-01-01',
+                endDate = '2022-01-01') %>%
+  rename(q = 'X_00060_00003')
+
+
+```
+
+
+### Static Data Plotter
+
+```{r, echo=FALSE, warning = FALSE, fig.width = 8, fig.height = 5}
+ggplot(q, aes(x = Date, y = q)) + 
+  geom_line() + 
+  ylab('Q (cfs)') + 
+  ggtitle('Discharge in the Poudre River, Fort Collins')
+
+```
+
+
+### Interactive Data Plotter
+
+
+```{r, echo=FALSE}
+q_xts <- xts(q$q, order.by = q$Date)
+
+
+dygraph(q_xts) %>%
+  dyAxis("y", label = "Discharge (cfs)")%>%
+  dyOptions(drawPoints = TRUE, pointSize = 2)
+```
+
+## Analysis and Discussion
+
+### Point DyGraph of Discharge
+```{r, echo=FALSE}
+q_xts <- xts(q$q, order.by = q$Date)
+dygraph(q_xts) %>%
+  dyAxis("y", label = "Discharge (cfs)")%>%
+  dyOptions(drawPoints = TRUE, pointSize = 2, strokeWidth=0)
+```
+
+### More about the Poudre
+The Cache la Poudre River runs for 126 miles from Rocky Mountain National Park east to join the South Platte River. Along its path, the river drops 7,000 feet in elevation. **The Poudre is Colorado's only nationally designated Wild and Scenic River.** The river's name is French for  
+*cache of powder*, referring to an [incident][id] in the 1820s when French trappers, caught by a snowstorm, were forced to bury part of their gunpowder along the banks of the river. The Poudre was the first [National Heritage Area][id3] established west of the Mississippi. The Poudre River is home to diverse [fish and wildlife species][id2] **The river is essential to the lives of the more than a half-million people in the northern Colorado Front Range.**
+
+[id]: https://poudretrail.org/trail-tour-2/history-of-the-area/#:~:text=The%20Name%3A%20%E2%80%9CCache%20la%20Poudre%E2%80%9D&text=Supplies%20were%20hidden%20in%20a,hiding%20place%20of%20the%20powder)
+[id2]:https://poudretrail.org/habitat-wildlife/
+[id3]: https://poudreheritage.org/interactive-map/ 
+
+<!--chapter:end:01-flow.Rmd-->
+
+# Working with fire data
+
+## Overview
+The Hayman Fire was a forest fire started on June 8, 2002, 35 miles northwest of Colorado Springs, Colorado. Below is a graphical analysis looking at some pre and post-fire changes. 
+![](https://cusp.ws/wp-content/uploads/2014/09/hayman-map-1024x845.jpg)
+
+## Methods
+We use remotely sensed Landsat 5/7/8 surface reflectance imagery to gather NDVI (normalized difference vegetation index), NDSI (normalized difference snow index), and NDMI (normalized difference moisture index) data for the burn extents of the Hayman Fire as well as an adjacent, un-burned reference area. Data was then plotted and visually analyzed for trends. 
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidyr)
+library(ggthemes)
+library(lubridate)
+library(dplyr)
+library(dygraphs)
+
+# Now that we have learned how to munge (manipulate) data
+# and plot it, we will work on using these skills in new ways
+
+knitr::opts_knit$set(root.dir='..')
+
+```
+
+```{r, include=FALSE}
+#Reading in the data.
+ndvi <- read_csv('data/hayman_ndvi.csv') %>%
+  rename(burned=2,unburned=3) %>%
+  filter(!is.na(burned),
+         !is.na(unburned))
+
+# Converting from wide to long data
+ndvi_long <- gather(ndvi,
+                    key='site',
+                    value='NDVI',
+                    -DateTime)
+
+# Plotting all the data
+ggplot(ndvi_long,aes(x=DateTime,y=NDVI,color=site))+
+  geom_point(shape=1) +
+  geom_line() +
+  theme_few() +
+  scale_color_few() +
+  theme(legend.position=c(0.3,0.3))
+
+# Summarizing the data by year
+ndvi_annual <- ndvi_long %>%
+  mutate(year=year(DateTime)) %>%
+  mutate(month=month(DateTime)) %>%
+  filter(month %in% c(5,6,7,8,9)) %>%
+  group_by(site,year) %>%
+  summarize(mean_NDVI=mean(NDVI))
+
+#Here making an annual plot
+ggplot(ndvi_annual,aes(x=year,y=mean_NDVI,color=site)) +
+  geom_point(shape=1) +
+  geom_line() +
+  theme_few() +
+  scale_color_few() +
+  theme(legend.position=c(0.3,0.3))
+
+
+# Plotting seasonal variation by summarizing over month instead of year
+ndvi_month <- ndvi_long %>%
+  mutate(year=year(DateTime)) %>%
+  mutate(month=month(DateTime)) %>%
+  group_by(site,month) %>%
+  summarize(mean_NDVI=mean(NDVI))
+
+# Same plot as above but with month on x-axis
+ggplot(ndvi_month,aes(x=month,y=mean_NDVI,color=site)) +
+  geom_point(shape=1) +
+  geom_line() +
+  theme_few() +
+  scale_color_few() +
+  theme(legend.position=c(0.6,0.2))
+
+
+## Adding another groupd called treatment (pre or post-burn)
+ndvi_month_pre_post <- ndvi_long %>%
+  mutate(year = year(DateTime),
+         month = month(DateTime),
+         treatment = cut(year,breaks=c(0,2003,2020),
+                         labels=c('pre-burn','post-burn'))) %>%
+  group_by(month,site,treatment) %>%
+  summarize(mean_ndvi = mean(NDVI))
+
+# Plot that splits out data by burned and unburned (facet_wrap(~site))
+ggplot(ndvi_month_pre_post,aes(x=month,y=mean_ndvi,color=treatment)) +
+  geom_point(shape=1) +
+  geom_line() +
+  theme_few() +
+  scale_color_few() +
+  theme(legend.position=c(0.6,0.2)) +
+  facet_wrap(~site)
+
+```
+
+```{r, include=FALSE}
+#Reading in files
+files <- list.files('data',full.names=T)
+
+
+#files
+
+#Read in individual data files
+ndmi <- read_csv(files[1]) %>% 
+  rename(burned=2,unburned=3) %>%
+  mutate(data='ndmi')
+
+
+ndsi <- read_csv(files[2]) %>% 
+  rename(burned=2,unburned=3) %>%
+  mutate(data='ndsi')
+
+ndvi <- read_csv(files[3])%>% 
+  rename(burned=2,unburned=3) %>%
+  mutate(data='ndvi')
+
+#Use view to look at a data like you would in excel
+View(ndmi)
+
+## join all datasets together and rename columns
+full_wide <- inner_join(ndmi %>% dplyr::select(-data),
+                        ndvi %>% dplyr::select(-data),
+                        by='DateTime') %>%
+  inner_join(ndsi %>% dplyr::select(-data),
+             by='DateTime') %>%
+  rename(burned_ndmi = 2,unburned_ndmi=3,
+         burned_ndvi=4, unburned_ndvi=5,
+         burned_ndsi=6, unburned_ndsi=7) %>%
+  filter_if(is.numeric,all_vars(!is.na(.))) %>%
+  mutate(month=month(DateTime),
+         year = year(DateTime))
+
+## Plot of burned plots of moisture (ndmi) vs greenness (ndvi)
+full_wide %>%
+  filter(!month %in% c(11,12,1,2,3,4,5)) %>%
+  ggplot(.,aes(x=burned_ndmi,y=burned_ndvi,color=month)) + 
+  geom_point()
+
+
+# Stack as a tidy dataset
+full_long <- rbind(ndvi,ndmi,ndsi) %>%
+  gather(key='site',value='value',-DateTime,-data) %>%
+  filter(!is.na(value))
+View(full_long)
+
+
+# Plot all three different types
+ggplot(full_long,aes(x=DateTime,y=value,color=site)) + 
+  geom_line() + 
+  facet_wrap(~data)+
+  theme_few() + 
+  scale_color_few() 
+
+```
+
+```{r, include=FALSE}
+#Reading in the data. 
+ndvi <- read_csv('data/hayman_ndvi.csv') %>%
+  rename(burned=2,unburned=3) %>%
+  filter(!is.na(burned),
+         !is.na(unburned))
+
+# Converting from wide to long data
+ndvi_long <- gather(ndvi,
+                    key='site',
+                    value='NDVI',
+                    -DateTime)
+
+# Plotting all the data
+ggplot(ndvi_long,aes(x=DateTime,y=NDVI,color=site))+
+  geom_point(shape=1) +
+  geom_line() +
+  theme_few() + 
+  scale_color_few() +
+  theme(legend.position=c(0.3,0.3))
+
+# Summarizing the data by year
+ndvi_annual <- ndvi_long %>%
+  mutate(year=year(DateTime)) %>%
+  mutate(month=month(DateTime)) %>%
+  filter(month %in% c(5,6,7,8,9)) %>%
+  group_by(site,year) %>%
+  summarize(mean_NDVI=mean(NDVI))
+
+#Here making an annual plot
+ggplot(ndvi_annual,aes(x=year,y=mean_NDVI,color=site)) +
+  geom_point(shape=1) + 
+  geom_line() +
+  theme_few() + 
+  scale_color_few() + 
+  theme(legend.position=c(0.3,0.3))
+
+
+# Plotting seasonal variation by summarizing over month instead of year
+ndvi_month <- ndvi_long %>%
+  mutate(year=year(DateTime)) %>%
+  mutate(month=month(DateTime)) %>%
+  group_by(site,month) %>%
+  summarize(mean_NDVI=mean(NDVI))
+
+# Same plot as above but with month on x-axis
+ggplot(ndvi_month,aes(x=month,y=mean_NDVI,color=site)) +
+  geom_point(shape=1) + 
+  geom_line() +
+  theme_few() + 
+  scale_color_few() + 
+  theme(legend.position=c(0.6,0.2))
+
+
+## Adding another groupd called treatment (pre or post-burn)
+ndvi_month_pre_post <- ndvi_long %>% 
+  mutate(year = year(DateTime),
+         month = month(DateTime),
+         treatment = cut(year,breaks=c(0,2003,2020),
+                         labels=c('pre-burn','post-burn'))) %>%
+  group_by(month,site,treatment) %>%
+  summarize(mean_ndvi = mean(NDVI))
+
+# Plot that splits out data by burned and unburned (facet_wrap(~site))            
+ggplot(ndvi_month_pre_post,aes(x=month,y=mean_ndvi,color=treatment)) +
+  geom_point(shape=1) + 
+  geom_line() +
+  theme_few() + 
+  scale_color_few() + 
+  theme(legend.position=c(0.6,0.2)) + 
+  facet_wrap(~site)
+
+```
+
+```{r, include=FALSE}
+#Reading in files
+files <- list.files('data',full.names=T)
+
+#Read in individual data files
+ndmi <- read_csv(files[1]) %>% 
+  rename(burned=2,unburned=3) %>%
+  mutate(data='ndmi')
+
+
+ndsi <- read_csv(files[2]) %>% 
+  rename(burned=2,unburned=3) %>%
+  mutate(data='ndsi')
+
+ndvi <- read_csv(files[3])%>% 
+  rename(burned=2,unburned=3) %>%
+  mutate(data='ndvi')
+
+## join all datasets together and rename columns
+full_wide <- inner_join(ndmi %>% dplyr::select(-data),
+                        ndvi %>% dplyr::select(-data),
+                        by='DateTime') %>%
+  inner_join(ndsi %>% dplyr::select(-data),by='DateTime') %>%
+  rename(burned_ndmi = 2,unburned_ndmi=3,
+         burned_ndvi=4, unburned_ndvi=5,
+         burned_ndsi=6, unburned_ndsi=7) %>%
+  filter_if(is.numeric,all_vars(!is.na(.))) %>% 
+  mutate(month=month(DateTime),
+         year=year(DateTime))
+
+
+## Plot of burned plots of moisture (ndmi) vs greenness (ndvi)
+full_wide %>%
+  filter(!month %in% c(11,12,1,2,3,4,5)) %>%
+ggplot(.,aes(x=burned_ndmi,y=burned_ndvi,color=month)) + 
+  geom_point()
+
+
+# Stack as a tidy dataset
+full_long <- rbind(ndvi,ndmi,ndsi) %>%
+  gather(key='site',value='value',-DateTime,-data) %>%
+  filter(!is.na(value))
+
+
+```
+## Analysis and Discussion
+Here is an overview plot showing NDVI, NDSI, and NDMI overtime. We see a large drop in NDVI and NDMI values in the burned area following the fire, which makes sense given a decrease in greeness and overall moisture. However, the lack of return to unburned levels tell us that recovery to pre-fire NDVI will require far more than two decades. 
+```{r, echo=FALSE, warning=FALSE}
+# Plot all three different types
+ggplot(full_long,aes(x=DateTime,y=value,color=site)) + 
+  geom_line() + 
+  facet_wrap(~data)+
+  theme_few() + 
+  scale_color_few() 
+```
+
+### Correlation between NDVI and NDMI
+The NDVI is correlated with the NDMI.As a general observed trend, a higher NDMI results in a higher NDVI. In other words, more moisture results in a higher amount of greeness. More precipitation and wetter soils means that vegetation can grow more effectively. In the unburned plot, NDMI appears to move as a gradient from less moisture in the summer to more moisture in the fall. However, we see a different relationship post-burn. Post-burn there is more of a range in NDVI  and we see much lower NDVI and NDMI values post-burn, particularly during the summer. This decrease in NDVI and also NDMI makes sense given the decrease in vegetation and moisture following the fire. In both plots there is a small scatter of high NDMI and low NDVI values in the summer months. 
+
+
+```{r, echo=FALSE, warning=FALSE}
+##convert full_long dataset to wide format
+data_wide<-spread(full_long,data,value)%>%
+  mutate(month=month(DateTime),
+         year = year(DateTime),
+         treatment = cut(year,breaks=c(0,2003,2020),
+                         labels=c('pre-burn','post-burn')))
+        
+
+## Plot of moisture (ndmi) vs greenness (ndvi) for burned area
+data_wide %>%
+  filter(!month %in% c(11,12,1,2,3,4,5)) %>%
+ggplot(.,aes(x=ndmi,y=ndvi,color=month)) + 
+  geom_point()+
+  facet_wrap(~site)+
+  theme_few()
+
+```
+
+### Correlation between average NDSI (January-April) and NDVI (June-August)
+The average NDSI during the winter is correlated to the NDVI during the summer. More snow in the winter means more greeness in the summer. While the NDSI data points stretch across a greater range on the plot, both the NDSI and NDVI follow a loose bell-shaped curve where NDSI rises and falls with the winter months and NDVI rises and falls with the summer months. 
+```{r warning=FALSE,message=FALSE, echo=FALSE}
+## Plot of snow (ndsi) vs greenness (ndvi) 
+data_wide %>%
+  filter(!month %in% c(5,9,10,11,12)) %>%
+ggplot(.,aes(x=ndvi,y=ndsi,color=month)) + 
+  geom_point()+
+  theme_few()
+```
+
+
+
+### Comparing snow effect between burned vs. unburned and pre- vs. post-burn.
+Here, the data from Q2 is further broken up by burned vs. unburned and pre- vs. post-burn. We see more of a correlated pattern in the data in the un-burned area compared to the burned. The burned data has more of a spread when comparing NDVI vs. NDSI. We have lower NDVI values in the unburned section compared to the burned, but the range of values for NDSI remains about the same, which suggests that snow coverage was similiar across burned and unburned areas. We see higher NDVI pre-burn compared to post-burn. 
+
+```{r warning=FALSE,message=FALSE, echo=FALSE}
+
+## Plot of snow (ndsi) vs greenness (ndvi) seperated by burned vs. unburned
+data_wide %>%
+  filter(!month %in% c(5,9,10,11,12)) %>%
+ggplot(.,aes(x=ndvi,y=ndsi,color=month)) + 
+  geom_point()+
+  facet_wrap(~site)+
+  theme_few()
+
+## Plot of snow (ndsi) vs greenness (ndvi) seperated by pre- vs. post-burn
+##Using 1984-2001 as pre-burn and 2002-2019 as post-burn
+data_wide %>%
+  filter(!month %in% c(5,9,10,11,12)) %>%
+ggplot(.,aes(x=ndvi,y=ndsi,color=month)) + 
+  geom_point()+
+  facet_wrap(~treatment)+
+  theme_few()
+
+
+```
+
+### What month is the greenest month on average? 
+August appears to be the greenest month on average in both the burned and unburned zones.  Lower NDVI values correspond to poorly vegetated areas, and higher values are associated with denser vegetation cover. This suprised me given the hot and dry summer temperatures in CO. 
+```{r warning=FALSE,message=FALSE, echo=FALSE}
+# Plotting seasonal variation by summarizing over month instead of year
+ndvi <- read_csv('data/hayman_ndvi.csv') %>%
+  rename(burned=2,unburned=3) %>%
+  filter(!is.na(burned),
+         !is.na(unburned))
+
+ndvi_long <- gather(ndvi,
+                    key='site',
+                    value='NDVI',
+                    -DateTime)
+
+ndvi_month <- ndvi_long %>%
+  mutate(year=year(DateTime)) %>%
+  mutate(month=month(DateTime)) %>%
+  group_by(site,month) %>%
+  summarize(mean_NDVI=mean(NDVI))
+ggplot(ndvi_month,aes(x=month,y=mean_NDVI,color=site)) +
+  geom_point(shape=1) + 
+  geom_line() +
+  theme_few() + 
+  scale_color_few() + 
+  scale_x_continuous(breaks=seq(1,12,1))+
+  theme(legend.position=c(0.6,0.2))
+```
+
+
+### What month is the snowiest on average?
+In the unburned zone, February has the highest NDSI (indicating the most snow), while NDSI in the burned zone suggests a snowier January. This makes sense when we think about snow seasonality in Colorado. The burned zone has less interception from trees and vegetation, which could be the cause of the slightly earlier peak in NDSI. 
+
+```{r warning=FALSE,message=FALSE, echo=FALSE}
+#Reading in the data. 
+ndsi <- read_csv('data/hayman_ndsi.csv') %>%
+  rename(burned=2,unburned=3) %>%
+  filter(!is.na(burned),
+         !is.na(unburned))
+
+# Converting from wide to long data
+ndsi_long <- gather(ndsi,
+                    key='site',
+                    value='NDSI',
+                    -DateTime)
+# Plotting seasonal variation by summarizing over month instead of year
+ndsi_month <- ndsi_long %>%
+  mutate(year=year(DateTime)) %>%
+  mutate(month=month(DateTime)) %>%
+  group_by(site,month) %>%
+  summarize(mean_NDSI=mean(NDSI))
+
+# Same plot as above but with month on x-axis
+ggplot(ndsi_month,aes(x=month,y=mean_NDSI,color=site)) +
+  geom_point(shape=1) + 
+  geom_line() +
+  theme_few() + 
+  scale_color_few() + 
+  scale_x_continuous(breaks=seq(1,12,1))+
+  theme(legend.position=c(0.6,0.2))
+```
+
+
+
+### Redo all problems with `spread` and `gather` using modern tidyverse syntax. 
+Modern tidyverse syntax uses pivot_wider() and pivot_longer() to reshape data between wide and long formats. Check out the updated code below that utilizes this modern tidyverse syntax. 
+```{r warning=FALSE,message=FALSE, results = FALSE}
+#convert long data to wide
+wide_pivot<-pivot_wider(full_long,names_from = "site", values_from = "value")%>%
+  mutate(month=month(DateTime),
+         year = year(DateTime),
+         treatment = cut(year,breaks=c(0,2003,2020),
+                         labels=c('pre-burn','post-burn')))
+#convert wide data to long
+full_wide%>% 
+  pivot_longer(burned_ndmi:unburned_ndsi,
+              names_to="data", 
+              values_to='value',
+              values_drop_na = TRUE)
+```
+
+
+
+
+<!--chapter:end:02-fire.Rmd-->
+
+
+```{r setup, include=FALSE}
+library(rvest)
+library(tidyverse)
+library(lubridate)
+library(readxl)
+library(pdftools)
+library(ggplot2)
+
+```
+
+
+# Working with snow data
+
+## Overview
+Understanding the seasonal delivery and distribution of mountain snow cover, snowpack, and seasonal trends is important to the American West and to snowmelt-watered regions everywhere.The Center for Snow and Avalanche Studies established and operates the Senator Beck Basin Study Area as a purpose-built mountain system observatory in an alpine headwater catchment of the Uncompahgre River at Red Mountain Pass, in the western San Juan Mountains of southwest Colorado. Senator Beck Basin is located in a critically wet and cold portion of the Colorado River Basin. 
+
+Here is a map from the Center for Snow and Avalanche Studies indicating sample site locations in Colorado, USA (http://snowstudies.org/sbbsa1.html). The Senator Beck Study Plot (SBSP), Swamp Angel Study Plot (SASP), and associated Senator Beck Stream Gauge (SBSG) and Putney Study Plot (PTSP) are indicated by yellow triangles within the Senator Beck Basin (SBB).
+
+![](https://snowstudies.org/Area_AirPhoto_wLocation_650w.png)
+In the assignment below, I'll work through manipulating some of the precipitation and temperature data collected as part of the long term Mountain System Monitoring. 
+
+## Methods
+This analysis uses the `SASP forcing` and `SBSP_forcing` meteorological data sets to understand how temperature and precipitation patterns change with time at the two sites.
+
+## Analysis and Discussion
+
+### Extract the meteorological data URLs. Here we want you to use the `rvest` package to get the URLs for the `SASP forcing` and `SBSP_forcing` meteorological datasets.
+
+```{r}
+site_url <- 'https://snowstudies.org/archived-data/'
+
+#Read the web url
+webpage <- read_html(site_url)
+
+#Extract only weblinks and then the URLs!
+links <- webpage %>%
+  html_nodes('a') %>% #a indicates a link to something 
+  .[grepl('forcing',.)] %>%
+  html_attr('href')
+links
+```
+
+### Download the meteorological data. Use the `download_file` and `str_split_fixed` commands to download the data and save it in your data folder.
+
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+#Downloaded data in a for loop
+
+#Grab only the name of the file by splitting out on forward slashes
+splits <- str_split_fixed(links,'/',8)
+splits
+#Keep only the 8th column
+dataset <- splits[,8] %>%
+  gsub('.txt','',.)
+
+#generate a file list for where the data goes
+file_names <- paste0('data/',dataset)
+datapath = 'data/'
+dir.create(datapath)
+file_names <- paste0(datapath,dataset)
+
+for(i in 1:2){
+  download.file(links[i],destfile=file_names[i])
+}
+
+downloaded <- file.exists(file_names)
+
+evaluate <- !all(downloaded)
+
+```
+
+
+```{r, echo=FALSE}
+#Downloaded data in a map
+
+#Map version of the same for loop (downloading 3 files)
+if(evaluate == T){
+  map2(links[1:2],file_names[1:2],download.file)
+}else{print('data already downloaded')}
+library(pdftools)
+headers <- pdf_text('https://snowstudies.org/wp-content/uploads/2022/02/Serially-Complete-Metadata-text08.pdf') %>%
+  readr::read_lines(.) %>%
+  trimws(.) %>%
+  str_split_fixed(.,'\\.',2) %>%
+  .[,2] %>%
+  #.[1:14] %>%
+  str_trim(side = "left")
+
+```
+
+### Writing a custom function to read in the data and append a site column to the data. 
+
+Below is code for creating a for loop to read in the data. Note the function is included in Q4 where I use map to read in the data and append a site column.
+
+```{r warning=FALSE, message=FALSE, results=FALSE}
+#Pattern matching to only keep certain files
+weather_files <- file_names %>%
+  .[!grepl('24hr',.)] 
+
+empty_data <- list()
+weather_data <- for(i in 1:length(weather_files)){
+  empty_data[[i]] <- read_table(file_names[i],col_names=headers)
+    read_table(weather_files[i])
+  
+}
+str(empty_data)
+   # select(Year,DOY,Sno_Height_M)
+weather_data_full <- do.call('rbind',empty_data) %>%
+    select(year,month,day,"precip [kg m-2 s-1]","air temp [K]") 
+    #mutate(site = name)
+#summary(weather_data_full)
+```
+### As a map function with tibble displayed
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+
+#Pattern matching to only keep certain files
+file=weather_files[1]
+weather_data_map<- function(file){
+  name=str_split_fixed(file,'/',2)[,2]%>%
+    gsub('Forcing_Data.txt','',.)
+  df<-read_table(file,col_names=headers,skip=4) %>% 
+    select(c(1,2,3,7,10)) %>%
+    mutate(site=name)
+}
+
+weather_data_full <- map_dfr(weather_files,weather_data_map)
+summary(weather_data_full)
+```
+### Make a line plot of mean temp by year by site 
+
+In the plot of mean temp by year by site, we see a sharp decline in mean temperature in 2003. A difference of nearly 10 K in 2003 compared to the other years does not make sense. I expect that there was instrument error or calibration error in the data during the first year of collection, which is causing this outlier in mean annual temperatures. 
+
+```{r, echo=FALSE, message=FALSE}
+names(weather_data_full)[names(weather_data_full)=='air temp [K]']<-"air_temp"
+temp_yearly<-weather_data_full %>%
+  group_by(year,site) %>% 
+  summarize(mean_temp = mean(air_temp,na.rm=T))
+ggplot(temp_yearly,aes(x=year, y=mean_temp,color=site))+
+  geom_point()+
+  geom_line()+
+  ggthemes::theme_few()+
+  ggthemes::scale_color_few()+
+  ylab("Mean Temp (K)")+
+  scale_x_continuous(breaks=c(2002, 2003,2004,2005,2006,2007,2008,2009,2010,2011,2012))
+
+```
+
+### Write a function that makes line plots of monthly average temperature at each site for a given year. Use a for loop to make these plots for 2005 to 2010. 
+
+Monthly average temperatures are always warmer at the Swamp Angel study plot compared to the Senator Beck study plot.This makes sense given that SASP is located in a sheltered location below treeline.SBSP is located above treeline in the alpine tundra. 
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+names(weather_data_full)[names(weather_data_full)=='air temp [K]']<-"air_temp"
+plotfunction<-function(year){
+  yeardata<-weather_data_full %>% filter(year==i) %>%
+    group_by(month,site) %>%
+    summarise(mean_temp = mean(air_temp,na.rm=T))
+  print(ggplot(yeardata,aes(x=month,y=mean_temp,color=site))+
+          geom_line()+
+          geom_point()+
+          ggthemes::theme_few()+ 
+          ylab("Mean Air Temperature (K)")+
+          xlab("Month")+
+          ggthemes::scale_color_few()+
+          scale_x_continuous(breaks=c(1,2,3,4,5,6,7,8,9,10,11,12))+
+          ggtitle(year))
+        
+}
+for (i in 2005:2010){
+  plotfunction(i)}
+
+```
+
+### Plot of average daily precipitation by day of year (averaged across all available years). 
+
+Precipitation data here was converted from kg m-2 s-1 to mm/day. However, the precipitation values are not realistic and suggest the conversion was inaccurate. Nonetheless, the general pattern can still be gleaned from these plots. 
+```{r, echo=FALSE}
+names(weather_data_full)[names(weather_data_full)=='precip [kg m-2 s-1']<-"precip"
+weather_data_full$`precip [kg m-2 s-1]`<-weather_data_full$`precip [kg m-2 s-1]`*86400
+  precip_daily <- weather_data_full %>% filter(year==i) %>%
+    group_by(day) %>%
+    summarize(mean_precip = mean(`precip [kg m-2 s-1]`,na.rm=T))
+ggplot(precip_daily,aes(x=day,y=mean_precip)) +
+  geom_point()+
+  geom_line()+
+  ggthemes::theme_few()+
+  ggthemes::scale_color_few()
+```
+
+### Use a function and for loop to create yearly plots of precipitation by day of year. 
+
+```{r, echo=FALSE}
+plotfunction<-function(year){
+  yeardata2<-weather_data_full %>% filter(year==i) %>%
+    group_by(day) %>%
+    summarize(mean_precip = mean(`precip [kg m-2 s-1]`,na.rm=T))
+  print(ggplot(yeardata2,aes(x=day,y=mean_precip))+
+          geom_line()+
+          geom_point()+
+          ggthemes::theme_few()+
+          ylab("Mean Air Temperature (K)")+
+          xlab("Month")+
+          ggthemes::scale_color_few()+
+          ggtitle(year))
+        
+}
+for (i in 2005:2010){
+  plotfunction(i)}
+
+```
+
+
+<!--chapter:end:03-snow.Rmd-->
+
+# Working with LAGOS data - Part 1
+## Overview
+LAGOS is a multi-scaled geospatial and temporal database of lake ecological context and water quality for thousands of US lakes. LAGOS-NE contains data for 51,101 lakes and reservoirs larger than 4 ha in 17 lake-rich US states. The database includes 3 data modules for: lake location and physical characteristics, ecological context, and in situ measurements of lake water quality. This database is one of the largest and most comprehensive databases of its type because it includes both in situ measurements and ecological context data. You can use the link to learn more about LAGOS. (https://lagoslakes.org/) 
+
+```{r setup, include=FALSE}
+library(tidyverse) # Tidy packages
+library(sf) #Spatial package that can read and create shapefiles 
+library(mapview) #Interactive maps
+library(LAGOSNE) #Lots and lots of clean lake data
+library(USAboundaries) #USA states and counties
+library(mapview)
+```
+## Methods
+
+Lagos data was loaded in to R. I brought in lake centroid info and converted the dataset to spatial data. I then subsetted the data specifically to the area of interest (Minnesota, Iowa, and Illinois). Next, you'll see the steps for analyzing this data. 
+
+```{r data-read, include=FALSE}
+# First download data and then specifically grab the locus (or site lat longs)
+# #Lagos download script
+LAGOSNE::lagosne_get(dest_folder = LAGOSNE:::lagos_path())
+
+
+#Load in lagos
+lagos <- lagosne_load()
+
+#Grab the lake centroid info
+lake_centers <- lagos$locus
+
+
+
+```
+
+
+
+```{r, include=FALSE}
+### Convert to spatial data
+
+#Look at the column names
+#names(lake_centers)
+
+#Look at the structure
+#str(lake_centers)
+
+#View the full dataset
+#View(lake_centers %>% slice(1:100))
+
+spatial_lakes <- st_as_sf(lake_centers,coords=c('nhd_long','nhd_lat'),
+                          crs=4326) %>%
+  st_transform(2163)
+
+#Subset for plotting
+subset_spatial <- spatial_lakes %>%
+  slice(1:100) 
+
+subset_baser <- spatial_lakes[1:100,]
+
+#Dynamic mapviewer
+mapview(subset_spatial)
+
+```
+
+
+
+
+```{r include=FALSE}
+### Subset to only Minnesota
+states <- us_states()
+
+#Plot all the states to check if they loaded
+#mapview(states)
+minnesota <- states %>%
+  filter(name == 'Minnesota') %>%
+  st_transform(2163)
+
+#Subset lakes based on spatial position
+minnesota_lakes <- spatial_lakes[minnesota,]
+nrow(minnesota_lakes)
+
+#Plotting the first 1000 lakes
+minnesota_lakes %>%
+  arrange(-lake_area_ha) %>%
+    slice(1:1000) %>%
+  mapview(.,zcol = 'lake_area_ha')
+```
+
+
+
+## Analysis and Discussion
+
+
+### Show a map outline of Iowa and Illinois
+
+```{r, echo=FALSE}
+
+states <- us_states()
+
+#Plot all the states to check if they loaded
+#mapview(states)
+
+##plotting Iowa and Illinois
+combinedmap <- states %>%
+  filter(name == 'Iowa'| name== 'Illinois') %>%
+  st_transform(2163)
+mapview(combinedmap)
+```
+
+
+
+
+### Subset LAGOS data to these sites, how many sites are in Illinois and Iowa combined? How does this compare to Minnesota?
+
+There are ~16,450 lakes in Illinois and Iowa combined (depending which method I use, there are 16,466 or 16,441, respectively. Comparatively, there are ~29,030 lakes in Minnesota (again, 29,038 or 29,022 depending on the count method). Perhaps the land of "10,000 lakes" should update its moto to reflect its sheer quantity!
+```{r, include=FALSE}
+combinedmap <- states %>%
+  filter(name == 'Iowa'| name== 'Illinois') %>%
+  st_transform(2163)
+combined_lakes <- spatial_lakes[combinedmap,]
+site_count<-nrow(combined_lakes)
+site_count
+nrow(minnesota_lakes)
+```
+
+
+```{r, echo=FALSE}
+site_counts <- lake_centers %>%
+  group_by(lagoslakeid) %>%
+  mutate(count = n()) %>%
+  select(lagoslakeid,nhd_long,nhd_lat, count, state_zoneid,lake_area_ha)
+
+states_lagos <- lagos$state %>%
+  select(-state_pct_in_nwi, -state_ha_in_nwi,-state_ha)
+
+stateid_counts <- inner_join(site_counts, states_lagos, by="state_zoneid") %>%
+  filter(state_name == 'Iowa'| state_name== 'Minnesota'| state_name== 'Illinois')
+state_sums <- stateid_counts %>%
+  group_by(state_name) %>%
+  summarize(sum_counts = sum(count))
+states <- us_states()
+ 
+
+states_join <- inner_join(states,state_sums,by='state_name') %>% 
+  arrange(desc(sum_counts))
+
+mapview(states_join, zcol='sum_counts')
+```
+
+### What is the distribution of lake size in Iowa vs. Minnesota?
+Iowa has more small lakes compared to Minnesota. Minnesota has more of a range in lake size and more lakes overall. 
+
+```{r, echo=FALSE}
+combinedmap2 <- stateid_counts %>%
+  filter(state_name == 'Iowa'| state_name== 'Minnesota')
+
+ggplot(combinedmap2, aes(x=lake_area_ha,color=state_name))+geom_histogram(bins = 100)+scale_x_log10()+labs(title="Histogram distribution of lake size in Iowa vs. Minnesota",x="Lake Size (ha)")
+
+```
+
+
+### Make an interactive plot of lakes in Iowa and Illinois and color them by lake area in hectares
+
+The plot shows 1,000 lakes in Illinois and Iowa to avoid data overload when visualizing the LAGOS data. Most of the lakes in Iowa and Illinois are smaller lakes, but there are a few larger lakes as indicated by the color variations. 
+
+
+```{r, echo=FALSE}
+combinedmap2 <- stateid_counts %>%
+  filter(state_name == 'Iowa'| state_name== 'Illinois')
+
+combined_lakes2 <- spatial_lakes[combinedmap,]
+combined_lakes2 %>%
+  arrange(-lake_area_ha) %>%
+    slice(1:1000) %>%
+    arrange(lake_area_ha) %>%
+  mapview(.,zcol = 'lake_area_ha')
+
+```
+
+
+### What other data sources might we use to understand how reservoirs and natural lakes vary in size in these three states? 
+The first data source I would use to understand how reservoirs and natural lakes vary in size is the National Hydrology Dataset (NHD) from the U.S. Geological Survey. Specifically, the "waterbody" layer would provide details on lake size. One additional source of data we can use to understand how reservoirs and natural lakes vary in size is via remote sensing. We can process imagery in Google Earth Engine to reflect changes to lake size or area calculations. 
+
+<!--chapter:end:04-LAGOS1.Rmd-->
+
+```{r setup, include=FALSE}
+library(tidyverse) # Tidy packages
+library(sf) #Spatial package that can read and create shapefiles 
+library(mapview) #Interactive maps
+library(LAGOSNE) #Lots and lots of clean lake data
+library(USAboundaries) #USA states and counties
+library(lubridate) #For dealing with date and time
+```
+# Working with LAGOS data - Part 2
+
+## Overview
+As mentioned in part 1, LAGOS is a multi-scaled geospatial and temporal database of lake ecological context and water quality for thousands of US lakes. LAGOS-NE contains data for 51,101 lakes and reservoirs larger than 4 ha in 17 lake-rich US states. The database includes 3 data modules for: lake location and physical characteristics, ecological context, and in situ measurements of lake water quality. This database is one of the largest and most comprehensive databases of its type because it includes both in situ measurements and ecological context data. You can use the link to learn more about LAGOS. (https://lagoslakes.org/) 
+
+## Methods
+In this part of the assignment, we're diving one step deeper into the LAGOS data and are looking at the in site measurements of lake water quality. We will use secchi disk and chlorophyll data for analyses. 
+
+## Analysis and Discussion
+
+```{r data-read, include=FALSE}
+## Loading in data
+### First download and then specifically grab the locus (or site lat longs)
+#Lagos download script
+#lagosne_get(dest_folder = LAGOSNE:::lagos_path(),overwrite=T)
+
+#Load in lagos
+lagos <- lagosne_load()
+
+
+#Grab the lake centroid info
+lake_centers <- lagos$locus
+
+# Make an sf object 
+spatial_lakes <- st_as_sf(lake_centers,coords=c('nhd_long','nhd_lat'),
+                          crs=4326)
+
+#Grab the water quality data
+nutr <- lagos$epi_nutr
+
+#Look at column names
+#names(nutr)
+```
+
+
+
+```{r, include=FALSE}
+### Subset columns nutr to only keep key info that we want
+clarity_only <- nutr %>%
+  select(lagoslakeid,sampledate,chla,doc,secchi) %>%
+  mutate(sampledate = as.character(sampledate) %>% ymd(.))
+
+```
+
+
+```{r, include=FALSE}
+### Keep sites with at least 200 observations 
+#Look at the number of rows of dataset
+#nrow(clarity_only)
+
+chla_secchi <- clarity_only %>%
+  filter(!is.na(chla),
+         !is.na(secchi))
+
+# How many observatiosn did we lose?
+# nrow(clarity_only) - nrow(chla_secchi)
+
+
+# Keep only the lakes with at least 200 observations of secchi and chla
+chla_secchi_200 <- chla_secchi %>%
+  group_by(lagoslakeid) %>%
+  mutate(count = n()) %>%
+  filter(count > 200)
+
+
+```
+
+
+
+```{r, include=FALSE}
+### Join water quality data to spatial data
+spatial_200 <- inner_join(spatial_lakes,chla_secchi_200 %>%
+                            distinct(lagoslakeid,.keep_all=T),
+                          by='lagoslakeid')
+
+
+```
+
+
+
+```{r, echo=FALSE}
+### Take the mean chl_a and secchi by lake
+### Mean Chl_a map
+mean_values_200 <- chla_secchi_200 %>%
+  # Take summary by lake id
+  group_by(lagoslakeid) %>%
+  # take mean chl_a per lake id
+  summarize(mean_chl = mean(chla,na.rm=T),
+            mean_secchi=mean(secchi,na.rm=T)) %>%
+  #Get rid of NAs
+  filter(!is.na(mean_chl),
+         !is.na(mean_secchi)) %>%
+  # Take the log base 10 of the mean_chl
+  mutate(log10_mean_chl = log10(mean_chl))
+
+#Join datasets
+mean_spatial <- inner_join(spatial_lakes,mean_values_200,
+                          by='lagoslakeid') 
+
+#Make a map
+mapview(mean_spatial,zcol='log10_mean_chl')
+```
+
+
+### What is the correlation between Secchi Disk Depth and Chlorophyll a for sites with at least 200 observations?
+
+Lower secchi disk depths (and larger values) correspond with clearer water. On the flip side, higher chlorophyll values suggest more algae present and thus less clear water. In the sites with at least 200 observations, we see more chlorophyll is associated with a lower secchi disk depth. The two are correlated with overall water quality (high chlorophyll and low secchi = poor water quality)
+
+
+```{r, echo=FALSE}
+mean_spatial %>%
+ggplot(aes(x=mean_secchi,y=mean_chl))+
+  geom_point()+
+  labs(title="Mean Secchi vs. Chloraphyll at Sites With >200 Observations)",x="Mean Secchi",y="Mean Chloraphyll")+
+  ggthemes::theme_few()
+```
+
+### What states have the most data? 
+Minnesota has the most data followed by Michigan. Rhode Island has the least amount of available data. 
+
+First you will need to make a lagos spatial dataset that has the total number of counts per site.
+
+```{r, echo=FALSE}
+site_counts2 <- lake_centers %>%
+  group_by(lagoslakeid) %>%
+  mutate(count = n()) %>%
+  select(lagoslakeid,nhd_long,nhd_lat, count, state_zoneid)
+
+states_lagos <- lagos$state %>%
+  select(-state_pct_in_nwi, -state_ha_in_nwi,-state_ha)
+
+stateid_counts2 <- inner_join(site_counts2, states_lagos, by="state_zoneid")
+
+state_sums2 <- stateid_counts2 %>%
+  group_by(state_name) %>%
+  summarize(sum_counts = sum(count))
+states <- us_states()
+states_join2 <- inner_join(states,state_sums2,by='state_name') %>% 
+  arrange(desc(sum_counts))
+```
+
+
+```{r, echo=FALSE}
+# Second, you will need to join this point dataset to the us_boundaries data. 
+mapview(states_join2, zcol='sum_counts')
+```
+
+
+```{r, echo=FALSE}
+#Then you will want to group by state and sum all the observations in that state and arrange that data from most to least total observations per state. 
+states_join2 <- inner_join(states,state_sums2,by='state_name') %>% 
+  arrange(desc(sum_counts))
+state_count_table<-tibble(states_join2)
+state_count_table %>% select(state_name,sum_counts)
+```
+
+### Is there a spatial pattern in Secchi disk depth for lakes with at least 200 observations?
+
+The places with the most and least lake data had high concentrations of low depths. I see what appears to be greater secchi disk depths in larger lakes, but that pattern is strictly visual. There does not appear to be a spatial pattern in geographic location of the lakes other than the lakes in New England appear to be slightly clearer based on the secchi depth. 
+
+```{r, echo=FALSE}
+mapview(mean_spatial,zcol='mean_secchi')
+```
+
+
+
+<!--chapter:end:05-LAGOS2.Rmd-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(R.matlab)
+library(rnassqs)
+```
+# Working with weather and yield data
+
+## Overview
+The USDA National Agricultural Statistics Service (NASS) provides a data repository of U.S. agricultural production. Learn more about it here. (https://www.nass.usda.gov/) Here we look at corn and soybean yields at different timescales, locations, and temperatures. 
+
+## Methods
+PRISM daily maximum temperature data and NASS crop yield data was downloaded and brought into R for analyses. The methods for analysis here focus on multiple regressions. 
+```{r tmax data, include=FALSE}
+##Weather Data Analysis
+### Load the PRISM daily maximum temperatures
+# daily max temperature
+# dimensions: counties x days x years
+prism <- readMat("data/prismiowa.mat")
+
+# look at county #1
+t_1981_c1 <- prism$tmaxdaily.iowa[1,,1]
+t_1981_c1[366]
+plot(1:366, t_1981_c1, type = "l")
+
+ggplot() +
+  geom_line(mapping = aes(x=1:366, y = t_1981_c1)) +
+  theme_bw() +
+  xlab("day of year") +
+  ylab("daily maximum temperature (°C)") +
+  ggtitle("Daily Maximum Temperature, Iowa County #1")
+
+
+```
+```{r, include=FALSE}
+#Tidying up
+# assign dimension names to tmax matrix
+dimnames(prism$tmaxdaily.iowa) <- list(prism$COUNTYFP, 1:366, prism$years)
+
+# converted 3d matrix into a data frame
+tmaxdf <- as.data.frame.table(prism$tmaxdaily.iowa)
+
+# relabel the columns
+colnames(tmaxdf) <- c("countyfp","doy","year","tmax")
+tmaxdf <- tibble(tmaxdf)
+
+```
+
+
+
+```{r, include=FALSE}
+## Temperature trends
+
+### Summer temperature trends: Winneshiek County
+tmaxdf$doy <- as.numeric(tmaxdf$doy)
+tmaxdf$year <- as.numeric(as.character(tmaxdf$year))
+
+winnesummer <- tmaxdf %>%
+  filter(countyfp==191 & doy >= 152 & doy <= 243) %>%
+  group_by(year) %>%
+  summarize(meantmax = mean(tmax))
+
+ggplot(winnesummer, mapping = aes(x = year, y = meantmax)) +
+  geom_point() +
+  theme_bw() +
+  labs(x = "year", y = "Tmax (°C)") +
+  geom_smooth(method = lm)
+
+lm_summertmax <- lm(meantmax ~ year, winnesummer)
+summary(lm_summertmax)
+
+```
+
+```{r, include=FALSE}
+### Winter Temperatures - Winneshiek County
+winnewinter <- tmaxdf %>%
+  filter(countyfp==191 & (doy <= 59 | doy >= 335) & !is.na(tmax)) %>%
+  group_by(year) %>%
+  summarize(meantmax = mean(tmax))
+
+ggplot(winnewinter, mapping = aes(x = year, y = meantmax)) +
+  geom_point() +
+  theme_bw() +
+  labs(x = "year", y = "Tmax (°C)") +
+  geom_smooth(method = lm)
+
+lm_wintertmax <- lm(meantmax ~ year, winnewinter)
+summary(lm_wintertmax)
+
+```
+
+
+```{r, include=FALSE}
+### Multiple regression -- Quadratic time trend
+
+winnewinter$yearsq <- winnewinter$year^2
+
+lm_wintertmaxquad <- lm(meantmax ~ year + yearsq, winnewinter)
+summary(lm_wintertmaxquad)
+winnewinter$fitted <- lm_wintertmaxquad$fitted.values
+
+ggplot(winnewinter) +
+  geom_point(mapping = aes(x = year, y = meantmax)) +
+  geom_line(mapping = aes(x = year, y = fitted)) +
+  theme_bw() +
+  labs(x = "year", y = "tmax")
+
+```
+
+
+```{r, include=FALSE}
+### Download NASS corn yield data
+
+# set our API key with NASS
+nassqs_auth(key = "9DAB6678-0A6B-3645-8E43-F2DCBB5F659C")
+
+# parameters to query on 
+params <- list(commodity_desc = "CORN", util_practice_desc = "GRAIN", prodn_practice_desc = "ALL PRODUCTION PRACTICES", year__GE = 1981, state_alpha = "IA")
+
+# download
+cornyieldsall <- nassqs_yields(params)
+
+cornyieldsall$county_ansi <- as.numeric(cornyieldsall$county_ansi)
+cornyieldsall$yield <- as.numeric(cornyieldsall$Value)
+
+# clean and filter this dataset
+cornyields <- select(cornyieldsall, county_ansi, county_name, yield, year) %>%
+  filter(!is.na(county_ansi) & !is.na(yield))
+cornyields <- tibble(cornyields)
+
+```
+
+## Analysis and Discussion
+
+### Extract Winneshiek County corn yields, fit a linear time trend, make a plot. Is there a significant time trend?
+
+Based on the fit of the linear time trend we can see that there is a significant trend between corn yield and time (p-value less than our alpha of 0.05). As years have increased, corn yield has also increased. We can also see this in the high R2 value of 0.75, suggesting a good linear model fit. 
+
+```{r, message=FALSE, echo=FALSE}
+winnecorn <- cornyields %>%
+  filter(county_name== 'WINNESHIEK') %>%
+  group_by(year) %>%
+  summarize(meanyield = mean(yield))
+ggplot(winnecorn, mapping = aes(x = year, y = meanyield)) +
+  geom_point() +
+  theme_bw() +
+  labs(x = "Year", y = "Corn Yield (Bushels per Acre)") +
+  geom_smooth(method = lm)
+
+lm_winnecorn <- lm(meanyield ~ year, winnecorn)
+summary(lm_winnecorn)
+```
+
+
+### Fit a quadratic time trend (i.e., year + year^2) and make a plot. Is there evidence for slowing yield growth? 
+The quadratic time trend fits the dataset well as evident by a R2 value of 0.75. However, the trend is positive and appears to suggest that the yield growth is still increasing. 
+```{r, message=FALSE, echo=FALSE}
+winnecorn$yearsq <- winnecorn$year^2
+
+lm_winnequad <- lm(meanyield ~ year + yearsq, winnecorn)
+summary(lm_winnequad)
+winnecorn$fitted <- lm_winnequad$fitted.values
+
+ggplot(winnecorn) +
+  geom_point(mapping = aes(x = year, y = meanyield)) +
+  geom_line(mapping = aes(x = year, y = fitted)) +
+  theme_bw() +
+  labs(x = "year", y = "Yield (Bushels per acre)")
+```
+
+### Time Series: Let's analyze the relationship between temperature and yields for the Winneshiek County time series. Use data on yield and summer avg Tmax. Is adding year or Tmax^2 to your model helpful? Make a plot and interpret the results.
+
+Here, adding Tmax^2 to our model does not help our fit. We have a R2 of 0.2, which suggests a poor model fit and lack of a relationship between temperature and yields for Winneshiek County. 
+
+```{r, message=FALSE, echo=FALSE}
+#bring in sumemr temp into yield
+winnetime<-inner_join(winnecorn,winnesummer)
+#now quadratic with temp data
+winnetime$tempsq<- winnetime$meantmax^2
+lm_winnetime_quad<- lm(meanyield~meantmax +tempsq,winnetime)
+summary(lm_winnetime_quad)
+winnetime$quadfitted<- lm_winnetime_quad$fitted.values
+#plotting regression
+ggplot(winnetime)+
+  geom_point(mapping=aes(x=meantmax,y=meanyield))+
+  geom_line(mapping=aes(x=meantmax,y=quadfitted))+
+  labs(x='Temperature (C)',y='Yield(Bushels per acre)')
+```
+
+
+### Cross-Section: Analyze the relationship between temperature and yield across all counties in 2018. Is there a relationship? Interpret the results.
+Here, we do not see a strong linear relationship between temperature and yield across all counties in 2018. This is evident by the lack of a clear visual linear trend in the plot below. 
+```{r, echo=FALSE}
+#gives us yield for all counties in 2018
+yield2018<- cornyieldsall %>%
+  filter(year==2018) %>%
+  group_by(county_name) %>%
+  unique() %>%
+  filter(!is.na(county_ansi))
+#gives max summer temp for 2018 per county
+county_summer<- tmaxdf %>%
+  group_by(countyfp) %>%
+  filter(year==2018) %>%
+  filter(doy>=152 & doy<=243) %>%
+  summarize(meantmax=mean(tmax)) %>%
+  rename(county_ansi="countyfp")
+#change from factor to numeric
+county_summer$county_ansi<- as.numeric(as.character(county_summer$county_ansi))
+#join data frames together
+county_summer_yield<- left_join(yield2018,county_summer,by="county_ansi")
+
+#plot data
+ggplot(county_summer_yield, aes(x=yield, y=meantmax))+
+  geom_point()+
+  geom_smooth(mapping = aes(x = yield, y = meantmax),method = lm) +
+  theme_bw()+
+  labs(x="Yield (Bushels per acre)", y="Temperature (C)")
+```
+
+### Panel: One way to leverage multiple time series is to group all data into what is called a "panel" regression. Convert the county ID code ("countyfp" or "county_ansi") into factor using as.factor, then include this variable in a regression using all counties' yield and summer temperature data. How does the significance of your temperature coefficients (Tmax, Tmax^2) change? Make a plot comparing actual and fitted yields and interpret the results of your model.
+
+Here, once again a R2 value of 0.65 suggests the model predicts the actual yield well. The data points are more closely correlated between fitted and actual yields with higher fitted and actual yield values. 
+```{r, include=FALSE}
+yieldall<- cornyieldsall %>%
+  group_by(county_name) %>%
+  unique() %>%
+  filter(!is.na(county_ansi))
+county_summer_yield2<- left_join(yieldall,county_summer,by="county_ansi")
+
+#bringing in data from Q3 and making county_ansi a factor
+county_summer_yield2$county_ansi<- as.factor(county_summer_yield2$county_ansi)
+head(county_summer_yield2)
+#squaring the tmax data
+county_summer_yield2$meantmaxsq<- county_summer_yield2$meantmax^2
+lm_county_summer_yield2<- lm(yield~meantmax+meantmaxsq+year+county_ansi,county_summer_yield2)
+summary(lm_county_summer_yield2)
+county_summer_yield2$fitted <- lm_county_summer_yield2$fitted.values
+#now plotting the data
+ggplot(county_summer_yield2, aes(x=yield, y=meantmax))+
+  geom_point()+
+  #geom_line(mapping=aes(x=yield,y=fitted))+
+  theme_bw()+
+  labs(x="Yield (Bushels per acre)", y="Temperature (C)")
+
+```
+
+```{r, message=FALSE, results=FALSE, message=FALSE, echo=FALSE}
+# Want yield for all counties, all years:
+county_yield_panel <- cornyieldsall %>% 
+  group_by(county_name) %>% 
+  unique() %>% 
+  filter(!is.na(county_ansi))
+#Want maximum summer temperatures per county. 
+county_summer_panel <- tmaxdf %>%
+  group_by(countyfp) %>%
+  filter(doy >= 152 & doy <= 243) %>%
+  summarize(meantmax = mean(tmax)) %>% 
+  rename(county_ansi = "countyfp")
+county_summer_panel$county_ansi <- as.numeric(as.character(county_summer_panel$county_ansi))
+#Joining the two dfs together
+county_summer_yield_panel <- left_join(county_yield_panel,county_summer_panel, by='county_ansi') 
+# combined yield and summer temperature df for all counties
+county_summer_yield_panel <- subset(county_summer_yield_panel, select = c(county_ansi, yield, meantmax, year))
+#making the county_ansi into a factor:
+county_summer_yield_panel$county_ansi <- as.factor(county_summer_yield_panel$county_ansi)
+#confirming it is a factor
+str(county_summer_yield_panel$county_ansi)
+# Squares the tmax value
+county_summer_yield_panel$meantmaxsq <- county_summer_yield_panel$meantmax^2
+lm_county_summer_yield_panel <- lm(yield ~ county_ansi + meantmax + meantmaxsq + year, county_summer_yield_panel)
+summary(lm_county_summer_yield_panel)
+#str(county_summer_yield)
+#head(county_summer_yield_panel)
+county_summer_yield_panel$fitted <- lm_county_summer_yield_panel$fitted.values
+#plotting the df with the linear and fitted model
+ggplot(county_summer_yield_panel) +
+  geom_point(mapping = aes(x = yield, y = fitted)) +
+  geom_smooth(mapping = aes(x = yield, y = fitted),method = lm) +
+  labs(x = "Actual Yield (Bushels per Acre)", y = "Fitted Yield")
+```
+
+### Soybeans: Download NASS data on soybean yields and explore either a time series relationship for a given county, the cross-sectional relationship for a given year, or a panel across all counties and years.
+
+Here, I have plotted the soybean yield on an annual basis. There appears to be a linear relationship with an increase in soybean yield each year, as evident by an R2 value of 0.65.  
+```{r, message=FALSE, echo=FALSE, results=FALSE}
+# set our API key with NASS
+nassqs_auth(key = "9DAB6678-0A6B-3645-8E43-F2DCBB5F659C")
+?rnassqs
+# parameters to query on 
+params2 <- list(commodity_desc = "SOYBEANS", statisticcat_desc="YIELD", prodn_practice_desc = "ALL PRODUCTION PRACTICES", year__GE = 1981, state_alpha = "IA")
+
+# download
+soyyieldsall <- nassqs_yields(params2)
+
+soyyieldsall$county_ansi <- as.numeric(soyyieldsall$county_ansi)
+soyyieldsall$Value <- as.numeric(soyyieldsall$Value)
+
+# clean and filter this dataset
+soyyields <- select(soyyieldsall, county_ansi, county_name, Value, year) %>%
+  filter(!is.na(county_ansi) & !is.na(Value))
+soyyields <- tibble(soyyields)
+
+#now plotting for linear trend line
+soylm <- soyyields %>%
+  group_by(year) %>%
+  summarize(meanyield = mean(Value))
+ggplot(soylm, mapping = aes(x = year, y = meanyield)) +
+  geom_point() +
+  theme_bw() +
+  labs(x = "Year", y = "Soybean Yield (Bushels per Acre)") +
+  geom_smooth(method = lm)
+
+lm_soylm <- lm(meanyield ~ year, soylm)
+summary(lm_soylm)
+```
+
+<!--chapter:end:06-yieldweather.Rmd-->
+
+`r if (knitr:::is_html_output()) '
+# References {-}
+'`
+This book relies on the date sets and code of others. Specifically, data was provided by Matt Ross and Nathan Mueller via their own data or sourced through national repositories such as LAGOS. Much of the source code that went in to creating each chapter was provided by Matt and Nathan as well as starter code for ESS 580A7 class assignments. All work was completed in R Studio (relying on a multitude of packages) and uploaded to Github. 
+
+![](https://www.extremetech.com/wp-content/uploads/2015/12/Brain-Machine-2-640x356.jpg)
+
+<!--chapter:end:07-references.Rmd-->
+

@@ -1,0 +1,79 @@
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(dataRetrieval)
+library(dygraphs)
+library(xts)
+```
+# Working with flow data
+
+
+## Overview
+The Poudre River at Lincoln Bridge is:
+
+  - Downstream of only a little bit of urban stormwater
+
+  - Near Odell Brewing CO
+  
+  - Near an open space area and the Poudre River Trail
+  
+  - Downstream of many agricultral diversions
+
+![](https://waterdata.usgs.gov/nwisweb/local/state/co/text/pics/06752260big.jpg)
+
+
+## Methods
+
+```{r downloader, include=FALSE}
+
+q <- readNWISdv(siteNumbers = '06752260',
+                parameterCd = '00060',
+                startDate = '2017-01-01',
+                endDate = '2022-01-01') %>%
+  rename(q = 'X_00060_00003')
+
+
+```
+
+
+### Static Data Plotter
+
+```{r, echo=FALSE, warning = FALSE, fig.width = 8, fig.height = 5}
+ggplot(q, aes(x = Date, y = q)) + 
+  geom_line() + 
+  ylab('Q (cfs)') + 
+  ggtitle('Discharge in the Poudre River, Fort Collins')
+
+```
+
+
+### Interactive Data Plotter
+
+
+```{r, echo=FALSE}
+q_xts <- xts(q$q, order.by = q$Date)
+
+
+dygraph(q_xts) %>%
+  dyAxis("y", label = "Discharge (cfs)")%>%
+  dyOptions(drawPoints = TRUE, pointSize = 2)
+```
+
+## Analysis and Discussion
+
+### Point DyGraph of Discharge
+```{r, echo=FALSE}
+q_xts <- xts(q$q, order.by = q$Date)
+dygraph(q_xts) %>%
+  dyAxis("y", label = "Discharge (cfs)")%>%
+  dyOptions(drawPoints = TRUE, pointSize = 2, strokeWidth=0)
+```
+
+### More about the Poudre
+The Cache la Poudre River runs for 126 miles from Rocky Mountain National Park east to join the South Platte River. Along its path, the river drops 7,000 feet in elevation. **The Poudre is Colorado's only nationally designated Wild and Scenic River.** The river's name is French for  
+*cache of powder*, referring to an [incident][id] in the 1820s when French trappers, caught by a snowstorm, were forced to bury part of their gunpowder along the banks of the river. The Poudre was the first [National Heritage Area][id3] established west of the Mississippi. The Poudre River is home to diverse [fish and wildlife species][id2] **The river is essential to the lives of the more than a half-million people in the northern Colorado Front Range.**
+
+[id]: https://poudretrail.org/trail-tour-2/history-of-the-area/#:~:text=The%20Name%3A%20%E2%80%9CCache%20la%20Poudre%E2%80%9D&text=Supplies%20were%20hidden%20in%20a,hiding%20place%20of%20the%20powder)
+[id2]:https://poudretrail.org/habitat-wildlife/
+[id3]: https://poudreheritage.org/interactive-map/ 

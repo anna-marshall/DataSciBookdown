@@ -1,0 +1,431 @@
+# Working with fire data
+
+## Overview
+The Hayman Fire was a forest fire started on June 8, 2002, 35 miles northwest of Colorado Springs, Colorado. Below is a graphical analysis looking at some pre and post-fire changes. 
+![](https://cusp.ws/wp-content/uploads/2014/09/hayman-map-1024x845.jpg)
+
+## Methods
+We use remotely sensed Landsat 5/7/8 surface reflectance imagery to gather NDVI (normalized difference vegetation index), NDSI (normalized difference snow index), and NDMI (normalized difference moisture index) data for the burn extents of the Hayman Fire as well as an adjacent, un-burned reference area. Data was then plotted and visually analyzed for trends. 
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidyr)
+library(ggthemes)
+library(lubridate)
+library(dplyr)
+library(dygraphs)
+
+# Now that we have learned how to munge (manipulate) data
+# and plot it, we will work on using these skills in new ways
+
+knitr::opts_knit$set(root.dir='..')
+
+```
+
+```{r, include=FALSE}
+#Reading in the data.
+ndvi <- read_csv('data/hayman_ndvi.csv') %>%
+  rename(burned=2,unburned=3) %>%
+  filter(!is.na(burned),
+         !is.na(unburned))
+
+# Converting from wide to long data
+ndvi_long <- gather(ndvi,
+                    key='site',
+                    value='NDVI',
+                    -DateTime)
+
+# Plotting all the data
+ggplot(ndvi_long,aes(x=DateTime,y=NDVI,color=site))+
+  geom_point(shape=1) +
+  geom_line() +
+  theme_few() +
+  scale_color_few() +
+  theme(legend.position=c(0.3,0.3))
+
+# Summarizing the data by year
+ndvi_annual <- ndvi_long %>%
+  mutate(year=year(DateTime)) %>%
+  mutate(month=month(DateTime)) %>%
+  filter(month %in% c(5,6,7,8,9)) %>%
+  group_by(site,year) %>%
+  summarize(mean_NDVI=mean(NDVI))
+
+#Here making an annual plot
+ggplot(ndvi_annual,aes(x=year,y=mean_NDVI,color=site)) +
+  geom_point(shape=1) +
+  geom_line() +
+  theme_few() +
+  scale_color_few() +
+  theme(legend.position=c(0.3,0.3))
+
+
+# Plotting seasonal variation by summarizing over month instead of year
+ndvi_month <- ndvi_long %>%
+  mutate(year=year(DateTime)) %>%
+  mutate(month=month(DateTime)) %>%
+  group_by(site,month) %>%
+  summarize(mean_NDVI=mean(NDVI))
+
+# Same plot as above but with month on x-axis
+ggplot(ndvi_month,aes(x=month,y=mean_NDVI,color=site)) +
+  geom_point(shape=1) +
+  geom_line() +
+  theme_few() +
+  scale_color_few() +
+  theme(legend.position=c(0.6,0.2))
+
+
+## Adding another groupd called treatment (pre or post-burn)
+ndvi_month_pre_post <- ndvi_long %>%
+  mutate(year = year(DateTime),
+         month = month(DateTime),
+         treatment = cut(year,breaks=c(0,2003,2020),
+                         labels=c('pre-burn','post-burn'))) %>%
+  group_by(month,site,treatment) %>%
+  summarize(mean_ndvi = mean(NDVI))
+
+# Plot that splits out data by burned and unburned (facet_wrap(~site))
+ggplot(ndvi_month_pre_post,aes(x=month,y=mean_ndvi,color=treatment)) +
+  geom_point(shape=1) +
+  geom_line() +
+  theme_few() +
+  scale_color_few() +
+  theme(legend.position=c(0.6,0.2)) +
+  facet_wrap(~site)
+
+```
+
+```{r, include=FALSE}
+#Reading in files
+files <- list.files('data',full.names=T)
+
+
+#files
+
+#Read in individual data files
+ndmi <- read_csv(files[1]) %>% 
+  rename(burned=2,unburned=3) %>%
+  mutate(data='ndmi')
+
+
+ndsi <- read_csv(files[2]) %>% 
+  rename(burned=2,unburned=3) %>%
+  mutate(data='ndsi')
+
+ndvi <- read_csv(files[3])%>% 
+  rename(burned=2,unburned=3) %>%
+  mutate(data='ndvi')
+
+#Use view to look at a data like you would in excel
+View(ndmi)
+
+## join all datasets together and rename columns
+full_wide <- inner_join(ndmi %>% dplyr::select(-data),
+                        ndvi %>% dplyr::select(-data),
+                        by='DateTime') %>%
+  inner_join(ndsi %>% dplyr::select(-data),
+             by='DateTime') %>%
+  rename(burned_ndmi = 2,unburned_ndmi=3,
+         burned_ndvi=4, unburned_ndvi=5,
+         burned_ndsi=6, unburned_ndsi=7) %>%
+  filter_if(is.numeric,all_vars(!is.na(.))) %>%
+  mutate(month=month(DateTime),
+         year = year(DateTime))
+
+## Plot of burned plots of moisture (ndmi) vs greenness (ndvi)
+full_wide %>%
+  filter(!month %in% c(11,12,1,2,3,4,5)) %>%
+  ggplot(.,aes(x=burned_ndmi,y=burned_ndvi,color=month)) + 
+  geom_point()
+
+
+# Stack as a tidy dataset
+full_long <- rbind(ndvi,ndmi,ndsi) %>%
+  gather(key='site',value='value',-DateTime,-data) %>%
+  filter(!is.na(value))
+View(full_long)
+
+
+# Plot all three different types
+ggplot(full_long,aes(x=DateTime,y=value,color=site)) + 
+  geom_line() + 
+  facet_wrap(~data)+
+  theme_few() + 
+  scale_color_few() 
+
+```
+
+```{r, include=FALSE}
+#Reading in the data. 
+ndvi <- read_csv('data/hayman_ndvi.csv') %>%
+  rename(burned=2,unburned=3) %>%
+  filter(!is.na(burned),
+         !is.na(unburned))
+
+# Converting from wide to long data
+ndvi_long <- gather(ndvi,
+                    key='site',
+                    value='NDVI',
+                    -DateTime)
+
+# Plotting all the data
+ggplot(ndvi_long,aes(x=DateTime,y=NDVI,color=site))+
+  geom_point(shape=1) +
+  geom_line() +
+  theme_few() + 
+  scale_color_few() +
+  theme(legend.position=c(0.3,0.3))
+
+# Summarizing the data by year
+ndvi_annual <- ndvi_long %>%
+  mutate(year=year(DateTime)) %>%
+  mutate(month=month(DateTime)) %>%
+  filter(month %in% c(5,6,7,8,9)) %>%
+  group_by(site,year) %>%
+  summarize(mean_NDVI=mean(NDVI))
+
+#Here making an annual plot
+ggplot(ndvi_annual,aes(x=year,y=mean_NDVI,color=site)) +
+  geom_point(shape=1) + 
+  geom_line() +
+  theme_few() + 
+  scale_color_few() + 
+  theme(legend.position=c(0.3,0.3))
+
+
+# Plotting seasonal variation by summarizing over month instead of year
+ndvi_month <- ndvi_long %>%
+  mutate(year=year(DateTime)) %>%
+  mutate(month=month(DateTime)) %>%
+  group_by(site,month) %>%
+  summarize(mean_NDVI=mean(NDVI))
+
+# Same plot as above but with month on x-axis
+ggplot(ndvi_month,aes(x=month,y=mean_NDVI,color=site)) +
+  geom_point(shape=1) + 
+  geom_line() +
+  theme_few() + 
+  scale_color_few() + 
+  theme(legend.position=c(0.6,0.2))
+
+
+## Adding another groupd called treatment (pre or post-burn)
+ndvi_month_pre_post <- ndvi_long %>% 
+  mutate(year = year(DateTime),
+         month = month(DateTime),
+         treatment = cut(year,breaks=c(0,2003,2020),
+                         labels=c('pre-burn','post-burn'))) %>%
+  group_by(month,site,treatment) %>%
+  summarize(mean_ndvi = mean(NDVI))
+
+# Plot that splits out data by burned and unburned (facet_wrap(~site))            
+ggplot(ndvi_month_pre_post,aes(x=month,y=mean_ndvi,color=treatment)) +
+  geom_point(shape=1) + 
+  geom_line() +
+  theme_few() + 
+  scale_color_few() + 
+  theme(legend.position=c(0.6,0.2)) + 
+  facet_wrap(~site)
+
+```
+
+```{r, include=FALSE}
+#Reading in files
+files <- list.files('data',full.names=T)
+
+#Read in individual data files
+ndmi <- read_csv(files[1]) %>% 
+  rename(burned=2,unburned=3) %>%
+  mutate(data='ndmi')
+
+
+ndsi <- read_csv(files[2]) %>% 
+  rename(burned=2,unburned=3) %>%
+  mutate(data='ndsi')
+
+ndvi <- read_csv(files[3])%>% 
+  rename(burned=2,unburned=3) %>%
+  mutate(data='ndvi')
+
+## join all datasets together and rename columns
+full_wide <- inner_join(ndmi %>% dplyr::select(-data),
+                        ndvi %>% dplyr::select(-data),
+                        by='DateTime') %>%
+  inner_join(ndsi %>% dplyr::select(-data),by='DateTime') %>%
+  rename(burned_ndmi = 2,unburned_ndmi=3,
+         burned_ndvi=4, unburned_ndvi=5,
+         burned_ndsi=6, unburned_ndsi=7) %>%
+  filter_if(is.numeric,all_vars(!is.na(.))) %>% 
+  mutate(month=month(DateTime),
+         year=year(DateTime))
+
+
+## Plot of burned plots of moisture (ndmi) vs greenness (ndvi)
+full_wide %>%
+  filter(!month %in% c(11,12,1,2,3,4,5)) %>%
+ggplot(.,aes(x=burned_ndmi,y=burned_ndvi,color=month)) + 
+  geom_point()
+
+
+# Stack as a tidy dataset
+full_long <- rbind(ndvi,ndmi,ndsi) %>%
+  gather(key='site',value='value',-DateTime,-data) %>%
+  filter(!is.na(value))
+
+
+```
+## Analysis and Discussion
+Here is an overview plot showing NDVI, NDSI, and NDMI overtime. We see a large drop in NDVI and NDMI values in the burned area following the fire, which makes sense given a decrease in greeness and overall moisture. However, the lack of return to unburned levels tell us that recovery to pre-fire NDVI will require far more than two decades. 
+```{r, echo=FALSE, warning=FALSE}
+# Plot all three different types
+ggplot(full_long,aes(x=DateTime,y=value,color=site)) + 
+  geom_line() + 
+  facet_wrap(~data)+
+  theme_few() + 
+  scale_color_few() 
+```
+
+### Correlation between NDVI and NDMI
+The NDVI is correlated with the NDMI.As a general observed trend, a higher NDMI results in a higher NDVI. In other words, more moisture results in a higher amount of greeness. More precipitation and wetter soils means that vegetation can grow more effectively. In the unburned plot, NDMI appears to move as a gradient from less moisture in the summer to more moisture in the fall. However, we see a different relationship post-burn. Post-burn there is more of a range in NDVI  and we see much lower NDVI and NDMI values post-burn, particularly during the summer. This decrease in NDVI and also NDMI makes sense given the decrease in vegetation and moisture following the fire. In both plots there is a small scatter of high NDMI and low NDVI values in the summer months. 
+
+
+```{r, echo=FALSE, warning=FALSE}
+##convert full_long dataset to wide format
+data_wide<-spread(full_long,data,value)%>%
+  mutate(month=month(DateTime),
+         year = year(DateTime),
+         treatment = cut(year,breaks=c(0,2003,2020),
+                         labels=c('pre-burn','post-burn')))
+        
+
+## Plot of moisture (ndmi) vs greenness (ndvi) for burned area
+data_wide %>%
+  filter(!month %in% c(11,12,1,2,3,4,5)) %>%
+ggplot(.,aes(x=ndmi,y=ndvi,color=month)) + 
+  geom_point()+
+  facet_wrap(~site)+
+  theme_few()
+
+```
+
+### Correlation between average NDSI (January-April) and NDVI (June-August)
+The average NDSI during the winter is correlated to the NDVI during the summer. More snow in the winter means more greeness in the summer. While the NDSI data points stretch across a greater range on the plot, both the NDSI and NDVI follow a loose bell-shaped curve where NDSI rises and falls with the winter months and NDVI rises and falls with the summer months. 
+```{r warning=FALSE,message=FALSE, echo=FALSE}
+## Plot of snow (ndsi) vs greenness (ndvi) 
+data_wide %>%
+  filter(!month %in% c(5,9,10,11,12)) %>%
+ggplot(.,aes(x=ndvi,y=ndsi,color=month)) + 
+  geom_point()+
+  theme_few()
+```
+
+
+
+### Comparing snow effect between burned vs. unburned and pre- vs. post-burn.
+Here, the data from Q2 is further broken up by burned vs. unburned and pre- vs. post-burn. We see more of a correlated pattern in the data in the un-burned area compared to the burned. The burned data has more of a spread when comparing NDVI vs. NDSI. We have lower NDVI values in the unburned section compared to the burned, but the range of values for NDSI remains about the same, which suggests that snow coverage was similiar across burned and unburned areas. We see higher NDVI pre-burn compared to post-burn. 
+
+```{r warning=FALSE,message=FALSE, echo=FALSE}
+
+## Plot of snow (ndsi) vs greenness (ndvi) seperated by burned vs. unburned
+data_wide %>%
+  filter(!month %in% c(5,9,10,11,12)) %>%
+ggplot(.,aes(x=ndvi,y=ndsi,color=month)) + 
+  geom_point()+
+  facet_wrap(~site)+
+  theme_few()
+
+## Plot of snow (ndsi) vs greenness (ndvi) seperated by pre- vs. post-burn
+##Using 1984-2001 as pre-burn and 2002-2019 as post-burn
+data_wide %>%
+  filter(!month %in% c(5,9,10,11,12)) %>%
+ggplot(.,aes(x=ndvi,y=ndsi,color=month)) + 
+  geom_point()+
+  facet_wrap(~treatment)+
+  theme_few()
+
+
+```
+
+### What month is the greenest month on average? 
+August appears to be the greenest month on average in both the burned and unburned zones.  Lower NDVI values correspond to poorly vegetated areas, and higher values are associated with denser vegetation cover. This suprised me given the hot and dry summer temperatures in CO. 
+```{r warning=FALSE,message=FALSE, echo=FALSE}
+# Plotting seasonal variation by summarizing over month instead of year
+ndvi <- read_csv('data/hayman_ndvi.csv') %>%
+  rename(burned=2,unburned=3) %>%
+  filter(!is.na(burned),
+         !is.na(unburned))
+
+ndvi_long <- gather(ndvi,
+                    key='site',
+                    value='NDVI',
+                    -DateTime)
+
+ndvi_month <- ndvi_long %>%
+  mutate(year=year(DateTime)) %>%
+  mutate(month=month(DateTime)) %>%
+  group_by(site,month) %>%
+  summarize(mean_NDVI=mean(NDVI))
+ggplot(ndvi_month,aes(x=month,y=mean_NDVI,color=site)) +
+  geom_point(shape=1) + 
+  geom_line() +
+  theme_few() + 
+  scale_color_few() + 
+  scale_x_continuous(breaks=seq(1,12,1))+
+  theme(legend.position=c(0.6,0.2))
+```
+
+
+### What month is the snowiest on average?
+In the unburned zone, February has the highest NDSI (indicating the most snow), while NDSI in the burned zone suggests a snowier January. This makes sense when we think about snow seasonality in Colorado. The burned zone has less interception from trees and vegetation, which could be the cause of the slightly earlier peak in NDSI. 
+
+```{r warning=FALSE,message=FALSE, echo=FALSE}
+#Reading in the data. 
+ndsi <- read_csv('data/hayman_ndsi.csv') %>%
+  rename(burned=2,unburned=3) %>%
+  filter(!is.na(burned),
+         !is.na(unburned))
+
+# Converting from wide to long data
+ndsi_long <- gather(ndsi,
+                    key='site',
+                    value='NDSI',
+                    -DateTime)
+# Plotting seasonal variation by summarizing over month instead of year
+ndsi_month <- ndsi_long %>%
+  mutate(year=year(DateTime)) %>%
+  mutate(month=month(DateTime)) %>%
+  group_by(site,month) %>%
+  summarize(mean_NDSI=mean(NDSI))
+
+# Same plot as above but with month on x-axis
+ggplot(ndsi_month,aes(x=month,y=mean_NDSI,color=site)) +
+  geom_point(shape=1) + 
+  geom_line() +
+  theme_few() + 
+  scale_color_few() + 
+  scale_x_continuous(breaks=seq(1,12,1))+
+  theme(legend.position=c(0.6,0.2))
+```
+
+
+
+### Redo all problems with `spread` and `gather` using modern tidyverse syntax. 
+Modern tidyverse syntax uses pivot_wider() and pivot_longer() to reshape data between wide and long formats. Check out the updated code below that utilizes this modern tidyverse syntax. 
+```{r warning=FALSE,message=FALSE, results = FALSE}
+#convert long data to wide
+wide_pivot<-pivot_wider(full_long,names_from = "site", values_from = "value")%>%
+  mutate(month=month(DateTime),
+         year = year(DateTime),
+         treatment = cut(year,breaks=c(0,2003,2020),
+                         labels=c('pre-burn','post-burn')))
+#convert wide data to long
+full_wide%>% 
+  pivot_longer(burned_ndmi:unburned_ndsi,
+              names_to="data", 
+              values_to='value',
+              values_drop_na = TRUE)
+```
+
+
+

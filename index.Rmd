@@ -1,0 +1,41 @@
+--- 
+title: "Environmental Data Science Methods & Analyses Compilation"
+author: "Anna Marshall"
+date: "`r Sys.Date()`"
+site: bookdown::bookdown_site
+output: bookdown::gitbook
+documentclass: book
+bibliography: [book.bib, packages.bib]
+biblio-style: apalike
+link-citations: yes
+github-repo: rstudio/bookdown-demo
+description: "This is a book compiling class assignments for an environmental data science course. The output format for this is bookdown::gitbook."
+---
+
+# Introduction to this book
+
+This book provides an overview of how to visualize and analyze different times of environmental data. Each chapter of the book contains both different types of data as well as methods of analysis and visualization. All chapters were created solely for the purpose of learning through the Environmental Data Science course at CSU (ESS580A7).  Below is a short overview of each chapter: 
+
+**Ch.2.** Using flow data to learn environmental data basics, file management, interactive plotting, and working between R Studio and Github. 
+
+**Ch.3.** Using remote imagery to look at landscape response to fire at different timescales.
+
+**Ch.4.** Calling in snow data from the web and building functions to create plots that loop data over multiple years. 
+
+**Ch.5.** Using large geospatial datasets to map the spatial distribution of water quality trends in reservoirs. 
+
+**Ch.6.** Continuing to use geospatial data to join datasets and extrapolate spatial trends. 
+
+**Ch.7.** Using yield and temperature data to create simple and multiple regression models, time serries, and panel models.
+
+**Ch.8.** References for data and code included in this book. 
+
+![](https://www.incimages.com/uploaded_files/image/1920x1080/software-computer-code-1940x900_35196.jpg)
+
+
+```{r include=FALSE}
+# automatically create a bib database for R packages
+knitr::write_bib(c(
+  .packages(), 'bookdown', 'knitr', 'rmarkdown'
+), 'packages.bib')
+```

@@ -1,0 +1,6 @@
+`r if (knitr:::is_html_output()) '
+# References {-}
+'`
+This book relies on the date sets and code of others. Specifically, data was provided by Matt Ross and Nathan Mueller via their own data or sourced through national repositories such as LAGOS. Much of the source code that went in to creating each chapter was provided by Matt and Nathan as well as starter code for ESS 580A7 class assignments. All work was completed in R Studio (relying on a multitude of packages) and uploaded to Github. 
+
+![](https://www.extremetech.com/wp-content/uploads/2015/12/Brain-Machine-2-640x356.jpg)

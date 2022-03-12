@@ -1,0 +1,213 @@
+
+```{r setup, include=FALSE}
+library(rvest)
+library(tidyverse)
+library(lubridate)
+library(readxl)
+library(pdftools)
+library(ggplot2)
+
+```
+
+
+# Working with snow data
+
+## Overview
+Understanding the seasonal delivery and distribution of mountain snow cover, snowpack, and seasonal trends is important to the American West and to snowmelt-watered regions everywhere.The Center for Snow and Avalanche Studies established and operates the Senator Beck Basin Study Area as a purpose-built mountain system observatory in an alpine headwater catchment of the Uncompahgre River at Red Mountain Pass, in the western San Juan Mountains of southwest Colorado. Senator Beck Basin is located in a critically wet and cold portion of the Colorado River Basin. 
+
+Here is a map from the Center for Snow and Avalanche Studies indicating sample site locations in Colorado, USA (http://snowstudies.org/sbbsa1.html). The Senator Beck Study Plot (SBSP), Swamp Angel Study Plot (SASP), and associated Senator Beck Stream Gauge (SBSG) and Putney Study Plot (PTSP) are indicated by yellow triangles within the Senator Beck Basin (SBB).
+
+![](https://snowstudies.org/Area_AirPhoto_wLocation_650w.png)
+In the assignment below, I'll work through manipulating some of the precipitation and temperature data collected as part of the long term Mountain System Monitoring. 
+
+## Methods
+This analysis uses the `SASP forcing` and `SBSP_forcing` meteorological data sets to understand how temperature and precipitation patterns change with time at the two sites.
+
+## Analysis and Discussion
+
+### Extract the meteorological data URLs. Here we want you to use the `rvest` package to get the URLs for the `SASP forcing` and `SBSP_forcing` meteorological datasets.
+
+```{r}
+site_url <- 'https://snowstudies.org/archived-data/'
+
+#Read the web url
+webpage <- read_html(site_url)
+
+#Extract only weblinks and then the URLs!
+links <- webpage %>%
+  html_nodes('a') %>% #a indicates a link to something 
+  .[grepl('forcing',.)] %>%
+  html_attr('href')
+links
+```
+
+### Download the meteorological data. Use the `download_file` and `str_split_fixed` commands to download the data and save it in your data folder.
+
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+#Downloaded data in a for loop
+
+#Grab only the name of the file by splitting out on forward slashes
+splits <- str_split_fixed(links,'/',8)
+splits
+#Keep only the 8th column
+dataset <- splits[,8] %>%
+  gsub('.txt','',.)
+
+#generate a file list for where the data goes
+file_names <- paste0('data/',dataset)
+datapath = 'data/'
+dir.create(datapath)
+file_names <- paste0(datapath,dataset)
+
+for(i in 1:2){
+  download.file(links[i],destfile=file_names[i])
+}
+
+downloaded <- file.exists(file_names)
+
+evaluate <- !all(downloaded)
+
+```
+
+
+```{r, echo=FALSE}
+#Downloaded data in a map
+
+#Map version of the same for loop (downloading 3 files)
+if(evaluate == T){
+  map2(links[1:2],file_names[1:2],download.file)
+}else{print('data already downloaded')}
+library(pdftools)
+headers <- pdf_text('https://snowstudies.org/wp-content/uploads/2022/02/Serially-Complete-Metadata-text08.pdf') %>%
+  readr::read_lines(.) %>%
+  trimws(.) %>%
+  str_split_fixed(.,'\\.',2) %>%
+  .[,2] %>%
+  #.[1:14] %>%
+  str_trim(side = "left")
+
+```
+
+### Writing a custom function to read in the data and append a site column to the data. 
+
+Below is code for creating a for loop to read in the data. Note the function is included in Q4 where I use map to read in the data and append a site column.
+
+```{r warning=FALSE, message=FALSE, results=FALSE}
+#Pattern matching to only keep certain files
+weather_files <- file_names %>%
+  .[!grepl('24hr',.)] 
+
+empty_data <- list()
+weather_data <- for(i in 1:length(weather_files)){
+  empty_data[[i]] <- read_table(file_names[i],col_names=headers)
+    read_table(weather_files[i])
+  
+}
+str(empty_data)
+   # select(Year,DOY,Sno_Height_M)
+weather_data_full <- do.call('rbind',empty_data) %>%
+    select(year,month,day,"precip [kg m-2 s-1]","air temp [K]") 
+    #mutate(site = name)
+#summary(weather_data_full)
+```
+### As a map function with tibble displayed
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+
+#Pattern matching to only keep certain files
+file=weather_files[1]
+weather_data_map<- function(file){
+  name=str_split_fixed(file,'/',2)[,2]%>%
+    gsub('Forcing_Data.txt','',.)
+  df<-read_table(file,col_names=headers,skip=4) %>% 
+    select(c(1,2,3,7,10)) %>%
+    mutate(site=name)
+}
+
+weather_data_full <- map_dfr(weather_files,weather_data_map)
+summary(weather_data_full)
+```
+### Make a line plot of mean temp by year by site 
+
+In the plot of mean temp by year by site, we see a sharp decline in mean temperature in 2003. A difference of nearly 10 K in 2003 compared to the other years does not make sense. I expect that there was instrument error or calibration error in the data during the first year of collection, which is causing this outlier in mean annual temperatures. 
+
+```{r, echo=FALSE, message=FALSE}
+names(weather_data_full)[names(weather_data_full)=='air temp [K]']<-"air_temp"
+temp_yearly<-weather_data_full %>%
+  group_by(year,site) %>% 
+  summarize(mean_temp = mean(air_temp,na.rm=T))
+ggplot(temp_yearly,aes(x=year, y=mean_temp,color=site))+
+  geom_point()+
+  geom_line()+
+  ggthemes::theme_few()+
+  ggthemes::scale_color_few()+
+  ylab("Mean Temp (K)")+
+  scale_x_continuous(breaks=c(2002, 2003,2004,2005,2006,2007,2008,2009,2010,2011,2012))
+
+```
+
+### Write a function that makes line plots of monthly average temperature at each site for a given year. Use a for loop to make these plots for 2005 to 2010. 
+
+Monthly average temperatures are always warmer at the Swamp Angel study plot compared to the Senator Beck study plot.This makes sense given that SASP is located in a sheltered location below treeline.SBSP is located above treeline in the alpine tundra. 
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+names(weather_data_full)[names(weather_data_full)=='air temp [K]']<-"air_temp"
+plotfunction<-function(year){
+  yeardata<-weather_data_full %>% filter(year==i) %>%
+    group_by(month,site) %>%
+    summarise(mean_temp = mean(air_temp,na.rm=T))
+  print(ggplot(yeardata,aes(x=month,y=mean_temp,color=site))+
+          geom_line()+
+          geom_point()+
+          ggthemes::theme_few()+ 
+          ylab("Mean Air Temperature (K)")+
+          xlab("Month")+
+          ggthemes::scale_color_few()+
+          scale_x_continuous(breaks=c(1,2,3,4,5,6,7,8,9,10,11,12))+
+          ggtitle(year))
+        
+}
+for (i in 2005:2010){
+  plotfunction(i)}
+
+```
+
+### Plot of average daily precipitation by day of year (averaged across all available years). 
+
+Precipitation data here was converted from kg m-2 s-1 to mm/day. However, the precipitation values are not realistic and suggest the conversion was inaccurate. Nonetheless, the general pattern can still be gleaned from these plots. 
+```{r, echo=FALSE}
+names(weather_data_full)[names(weather_data_full)=='precip [kg m-2 s-1']<-"precip"
+weather_data_full$`precip [kg m-2 s-1]`<-weather_data_full$`precip [kg m-2 s-1]`*86400
+  precip_daily <- weather_data_full %>% filter(year==i) %>%
+    group_by(day) %>%
+    summarize(mean_precip = mean(`precip [kg m-2 s-1]`,na.rm=T))
+ggplot(precip_daily,aes(x=day,y=mean_precip)) +
+  geom_point()+
+  geom_line()+
+  ggthemes::theme_few()+
+  ggthemes::scale_color_few()
+```
+
+### Use a function and for loop to create yearly plots of precipitation by day of year. 
+
+```{r, echo=FALSE}
+plotfunction<-function(year){
+  yeardata2<-weather_data_full %>% filter(year==i) %>%
+    group_by(day) %>%
+    summarize(mean_precip = mean(`precip [kg m-2 s-1]`,na.rm=T))
+  print(ggplot(yeardata2,aes(x=day,y=mean_precip))+
+          geom_line()+
+          geom_point()+
+          ggthemes::theme_few()+
+          ylab("Mean Air Temperature (K)")+
+          xlab("Month")+
+          ggthemes::scale_color_few()+
+          ggtitle(year))
+        
+}
+for (i in 2005:2010){
+  plotfunction(i)}
+
+```
+
